@@ -1,26 +1,24 @@
 # Document Information Extractor
 
-A web application that intelligently extracts key information from uploaded images of transactional documents (bills, invoices, sales orders, etc.) using OCR and machine learning.
+A web application that intelligently extracts key information from uploaded images of transactional documents (bills, invoices, sales orders, etc.) using AI vision capabilities.
 
 ## Features
 
 - Upload and process various image formats (PNG, JPG, JPEG, GIF, TIFF, BMP)
-- Image preprocessing for improved OCR accuracy
-- Text extraction using Tesseract OCR
-- Intelligent information extraction using NLP and machine learning
+- AI-powered information extraction using GPT-4 Vision through OpenRouter
+- Intelligent recognition of:
+  - Account numbers and invoice numbers
+  - Labor details (names, rates, hours, amounts)
+  - Material details (items, quantities, unit costs, amounts)
+  - Subtotals and total amounts
+- Handles varying invoice formats and layouts
 - Structured output in a tabular format
 - Responsive web interface
 
 ## Prerequisites
 
 1. Python 3.7 or higher
-2. Tesseract OCR:
-   - Windows:
-     1. Download the installer from: https://github.com/UB-Mannheim/tesseract/wiki
-     2. Install Tesseract to: `C:\Program Files\Tesseract-OCR`
-     3. Add the installation path to your system's PATH environment variable
-   - Linux: `sudo apt-get install tesseract-ocr`
-   - macOS: `brew install tesseract`
+2. OpenRouter API key (get one from https://openrouter.ai/keys)
 
 ## Installation
 
@@ -46,6 +44,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+4. Set up your environment:
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenRouter API key
+# OPENROUTER_API_KEY=your_api_key_here
+```
+
 ## Usage
 
 1. Start the Flask application:
@@ -59,18 +66,22 @@ python app.py
 
 4. View the extracted information in a structured table format
 
-## Testing
+## How It Works
 
-1. Create and process a test image:
-```bash
-python test_ocr.py
-```
+1. **Image Upload**: Users upload invoice images through the web interface.
 
-This will:
-- Generate a sample invoice image
-- Process it using OCR
-- Extract structured information
-- Display the results
+2. **AI Processing**: The application uses GPT-4 Vision through OpenRouter to:
+   - Analyze the image content
+   - Identify key information and data structures
+   - Extract relevant details in a structured format
+
+3. **Data Extraction**: The system intelligently extracts:
+   - Document identifiers (account numbers, invoice numbers)
+   - Labor information (worker details, rates, hours)
+   - Material details (items, quantities, costs)
+   - Financial totals and subtotals
+
+4. **Result Display**: Extracted information is presented in a clean, organized format.
 
 ## Project Structure
 
@@ -79,11 +90,9 @@ image-extractor/
 ├── app.py                 # Main Flask application
 ├── requirements.txt       # Python dependencies
 ├── README.md             # Project documentation
-├── create_test_image.py  # Test image generator
-├── test_ocr.py          # OCR testing script
+├── .env.example          # Example environment variables
 ├── modules/
-│   ├── ocr_processor.py  # OCR processing module
-│   └── info_extractor.py # Information extraction module
+│   └── info_extractor.py # AI-powered information extraction
 ├── static/
 │   └── css/
 │       └── style.css     # Application styles
@@ -95,19 +104,19 @@ image-extractor/
 
 ## Troubleshooting
 
-1. Tesseract OCR not found:
-   - Ensure Tesseract is installed correctly
-   - Verify the installation path matches the one in `modules/ocr_processor.py`
-   - Add Tesseract to your system PATH
-   - Windows: Set the `TESSERACT_CMD` environment variable to point to tesseract.exe
+1. API Key Issues:
+   - Ensure your OpenRouter API key is correctly set in the .env file
+   - Verify the API key has sufficient credits/permissions
 
-2. Model download issues:
-   - Ensure you have a stable internet connection for the first run
-   - The Hugging Face transformer model will be downloaded automatically
+2. Image Processing Issues:
+   - Ensure images are clear and readable
+   - Check that file size is under the 16MB limit
+   - Verify the image format is supported
 
-3. Memory issues:
-   - Consider reducing the maximum file size in app.py
-   - Adjust the image preprocessing parameters in ocr_processor.py
+3. Extraction Accuracy:
+   - For best results, use clear, well-lit images
+   - Ensure important information is clearly visible
+   - Try different angles if certain details are not being captured
 
 ## Potential Improvements
 
@@ -119,6 +128,8 @@ image-extractor/
 6. Implement caching for better performance
 7. Add user authentication and document management
 8. Implement API endpoints for programmatic access
+9. Add support for more document types
+10. Implement result validation and correction interface
 
 ## License
 

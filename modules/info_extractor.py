@@ -1,126 +1,169 @@
-from transformers import pipeline
-import re
+import os
+import base64
+from typing import Dict, Any, List
+import json
+import requests
+from PIL import Image
+import io
 
-class InfoExtractor:
+class AIInfoExtractor:
     def __init__(self):
-        # Initialize the NER pipeline for identifying entities
-        self.ner_pipeline = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english")
+        self.api_key = os.getenv('OPENROUTER_API_KEY')
+        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
         
-    def extract_info(self, text):
+    def encode_image(self, image_path: str) -> str:
+        """Convert image to base64 string"""
+        with Image.open(image_path) as img:
+            # Convert to RGB if needed
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Resize if too large (max 2048 pixels in either dimension)
+            max_size = 2048
+            if img.width > max_size or img.height > max_size:
+                ratio = min(max_size/img.width, max_size/img.height)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.Refilter.LANCZOS)
+            
+            # Convert to base64
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG")
+            return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+    def extract_info(self, image_path: str) -> List[Dict[str, str]]:
         """
-        Extract structured information from the OCR text
+        Extract information from any transactional document using AI vision model
+        Returns a list of dictionaries with label, value, and remarks for each extracted piece of information
         """
         try:
-            # Split text into lines
-            lines = text.split('\n')
-            results = []
+            # Encode image
+            base64_image = self.encode_image(image_path)
             
-            # Process each line
-            for line in lines:
-                if not line.strip():
-                    continue
-                    
-                # Use NER to identify potential entities
-                entities = self.ner_pipeline(line)
+            # Prepare the prompt
+            prompt = """Analyze this transactional document (which could be an invoice, bill, sales order, purchase order, etc.) and extract all relevant information.
+
+For each piece of information you find:
+1. Identify what the information represents (the label)
+2. Extract its corresponding value
+3. Add any relevant remarks about the information (e.g., confidence level, data type, unit of measurement)
+
+Present the information as a list of JSON objects, where each object has these fields:
+- label: What this information represents (e.g., "Invoice Number", "Total Amount", "Customer Name", etc.)
+- value: The actual value found in the document
+- remarks: Any relevant notes about this information
+
+Be intelligent in determining what information is important. Look for:
+- Document identifiers (any reference numbers, dates, etc.)
+- Monetary amounts and calculations
+- Quantities and measurements
+- Names and contact information
+- Product or service details
+- Any other relevant business information
+
+Format numbers appropriately (e.g., monetary values as decimals). Include units in the remarks rather than the value field.
+
+Example format:
+[
+    {
+        "label": "Document Type",
+        "value": "Sales Invoice",
+        "remarks": "Determined from document header"
+    },
+    {
+        "label": "Reference Number",
+        "value": "INV-12345",
+        "remarks": "Found in top right corner"
+    }
+]"""
+
+            # Prepare the API request
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "HTTP-Referer": "https://github.com/",  # Required by OpenRouter
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "model": "gpt-4-vision-preview",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            # Make the API request
+            response = requests.post(self.api_url, headers=headers, json=data)
+            response.raise_for_status()
+            
+            # Extract the response
+            result = response.json()
+            
+            # Debug print
+            print("API Response:", result)
+            
+            # Get the content from the response
+            if isinstance(result, dict) and 'choices' in result and len(result['choices']) > 0:
+                content = result['choices'][0].get('message', {}).get('content', '')
+            else:
+                raise Exception("Unexpected API response format")
+            
+            # Parse the JSON response
+            try:
+                # Try to extract JSON from the response
+                # Find the first '[' and last ']' to extract the JSON array
+                start_idx = content.find('[')
+                end_idx = content.rfind(']')
                 
-                # Process the entities and create structured data
-                processed_data = self._process_entities(line, entities)
+                if start_idx == -1 or end_idx == -1:
+                    raise Exception("No JSON array found in response")
                 
-                if processed_data:
-                    results.extend(processed_data)
-            
-            # Add additional processing for common document fields
-            self._add_common_fields(text, results)
-            
-            return results
+                json_str = content[start_idx:end_idx + 1]
+                extracted_data = json.loads(json_str)
+                
+                if not isinstance(extracted_data, list):
+                    raise Exception("Extracted data is not a list")
+                
+                # Validate and clean the extracted data
+                return self._clean_extracted_data(extracted_data)
+                
+            except json.JSONDecodeError as e:
+                print("JSON Decode Error:", str(e))
+                print("Content:", content)
+                raise Exception("Failed to parse AI response as JSON")
             
         except Exception as e:
-            raise Exception(f"Error in information extraction: {str(e)}")
+            print(f"Error extracting information: {str(e)}")
+            return []
     
-    def _process_entities(self, line, entities):
-        """
-        Process identified entities and create structured data
-        """
-        results = []
+    def _clean_extracted_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        """Clean and validate the extracted data"""
+        cleaned = []
         
-        # Process entities identified by the model
-        if entities:
-            for entity in entities:
-                results.append({
-                    'label': entity['entity'],
-                    'value': entity['word'],
-                    'remarks': f"Confidence: {entity['score']:.2f}"
-                })
-        
-        # Look for key-value pairs in the line
-        kv_match = re.match(r'^([^:]+):\s*(.+)$', line)
-        if kv_match:
-            label, value = kv_match.groups()
-            results.append({
-                'label': label.strip(),
-                'value': value.strip(),
-                'remarks': 'Key-value pair'
-            })
+        try:
+            for item in data:
+                if isinstance(item, dict) and 'label' in item and 'value' in item:
+                    cleaned_item = {
+                        'label': str(item.get('label', '')).strip(),
+                        'value': str(item.get('value', '')).strip(),
+                        'remarks': str(item.get('remarks', '')).strip()
+                    }
+                    if cleaned_item['label'] and cleaned_item['value']:  # Only include items with both label and value
+                        cleaned.append(cleaned_item)
             
-        return results
-    
-    def _add_common_fields(self, text, results):
-        """
-        Add common document fields like dates, amounts, invoice numbers, etc.
-        """
-        # Look for dates
-        date_pattern = r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'
-        dates = re.findall(date_pattern, text)
-        for date in dates:
-            if not any(r['label'] == 'Date' and r['value'] == date for r in results):
-                results.append({
-                    'label': 'Date',
-                    'value': date,
-                    'remarks': 'Date format detected'
-                })
+        except Exception as e:
+            print(f"Error cleaning data: {str(e)}")
         
-        # Look for amounts/prices
-        amount_pattern = r'\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?\b'
-        amounts = re.findall(amount_pattern, text)
-        for amount in amounts:
-            if not any(r['label'] == 'Amount' and r['value'] == amount for r in results):
-                results.append({
-                    'label': 'Amount',
-                    'value': amount,
-                    'remarks': 'Currency amount detected'
-                })
-        
-        # Look for invoice/order numbers
-        invoice_pattern = r'\b(?:INV|INVOICE|ORDER|PO)[:#-]?\s*\d+\b'
-        invoices = re.findall(invoice_pattern, text, re.IGNORECASE)
-        for invoice in invoices:
-            if not any(r['label'] == 'Reference Number' and r['value'] == invoice for r in results):
-                results.append({
-                    'label': 'Reference Number',
-                    'value': invoice,
-                    'remarks': 'Invoice/Order number detected'
-                })
-        
-        # Look for email addresses
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-        emails = re.findall(email_pattern, text)
-        for email in emails:
-            if not any(r['label'] == 'Email' and r['value'] == email for r in results):
-                results.append({
-                    'label': 'Email',
-                    'value': email,
-                    'remarks': 'Email address detected'
-                })
-        
-        # Look for phone numbers
-        phone_pattern = r'\b(?:\+\d{1,3}[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}\b'
-        phones = re.findall(phone_pattern, text)
-        for phone in phones:
-            if not any(r['label'] == 'Phone' and r['value'] == phone for r in results):
-                results.append({
-                    'label': 'Phone',
-                    'value': phone,
-                    'remarks': 'Phone number detected'
-                })
-        
-        return results
+        return cleaned

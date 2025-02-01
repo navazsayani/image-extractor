@@ -1,8 +1,15 @@
 import os
 from flask import Flask, request, render_template, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
-from modules.ocr_processor import OCRProcessor
-from modules.info_extractor import InfoExtractor
+from modules.info_extractor import AIInfoExtractor
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Check for required API key
+if not os.getenv('OPENROUTER_API_KEY'):
+    raise ValueError("OPENROUTER_API_KEY environment variable is required")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -12,11 +19,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff', 'bmp'}
 
 # Create upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Serve static files
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('static', filename)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -37,33 +39,45 @@ def upload_file():
         return redirect(url_for('index'))
     
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
         try:
-            # Process the image
-            ocr_processor = OCRProcessor()
-            info_extractor = InfoExtractor()
+            # Save the uploaded file
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
             
-            # Extract text using OCR
-            extracted_text = ocr_processor.process_image(filepath)
-            
-            # Extract structured information
-            extracted_info = info_extractor.extract_info(extracted_text)
-            
-            # Clean up the uploaded file
-            os.remove(filepath)
-            
-            return render_template('results.html', results=extracted_info)
-            
+            try:
+                # Process the image using AI
+                info_extractor = AIInfoExtractor()
+                extracted_info = info_extractor.extract_info(filepath)
+                
+                # Clean up the uploaded file
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                
+                # Check if we got any results
+                if not extracted_info:
+                    flash('Could not extract any information from the document. Please ensure it is a clear image with readable text.')
+                    return redirect(url_for('index'))
+                
+                return render_template('results.html', results=extracted_info)
+                
+            except Exception as e:
+                # Clean up the uploaded file in case of processing error
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                print(f"Processing error: {str(e)}")
+                flash(f'Error processing document: {str(e)}')
+                return redirect(url_for('index'))
+                
         except Exception as e:
-            flash(f'Error processing file: {str(e)}')
+            print(f"Upload error: {str(e)}")
+            flash(f'Error uploading file: {str(e)}')
             return redirect(url_for('index'))
     else:
-        flash('Invalid file type')
+        flash('Invalid file type. Allowed types: PNG, JPG, JPEG, GIF, TIFF, BMP')
         return redirect(url_for('index'))
 
 if __name__ == '__main__':
     print("Starting Flask application...")
+    print("Make sure OPENROUTER_API_KEY environment variable is set")
     app.run(debug=True)
