@@ -65,8 +65,18 @@ def upload_file():
                 # Clean up the uploaded file in case of processing error
                 if os.path.exists(filepath):
                     os.remove(filepath)
-                print(f"Processing error: {str(e)}")
-                flash(f'Error processing document: {str(e)}')
+                error_msg = str(e)
+                print(f"Processing error: {error_msg}")
+                if "timeout" in error_msg.lower():
+                    flash('Request timed out. Please try with a smaller image or try again later.')
+                elif "file is too large" in error_msg.lower():
+                    flash('Image file is too large. Maximum size is 15MB.')
+                elif "invalid or corrupted" in error_msg.lower():
+                    flash('The image file appears to be corrupted or in an unsupported format.')
+                elif "file not found" in error_msg.lower():
+                    flash('The uploaded file could not be found. Please try uploading again.')
+                else:
+                    flash(f'Error processing document: {error_msg}')
                 return redirect(url_for('index'))
                 
         except Exception as e:

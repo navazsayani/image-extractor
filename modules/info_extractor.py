@@ -3,8 +3,9 @@ import base64
 from typing import Dict, Any, List
 import json
 import requests
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import io
+import PIL
 
 class AIInfoExtractor:
     def __init__(self):
@@ -15,6 +16,13 @@ class AIInfoExtractor:
         
     def encode_image(self, image_path: str) -> str:
         """Convert image to base64 string"""
+        if not os.path.exists(image_path):
+            raise Exception("Image file not found")
+            
+        file_size = os.path.getsize(image_path)
+        if file_size > 15 * 1024 * 1024:  # 15MB limit
+            raise Exception("Image file is too large (max 15MB)")
+            
         try:
             with Image.open(image_path) as img:
                 print(f"Image opened successfully: {image_path}")
@@ -30,7 +38,7 @@ class AIInfoExtractor:
                 if img.width > max_size or img.height > max_size:
                     ratio = min(max_size/img.width, max_size/img.height)
                     new_size = (int(img.width * ratio), int(img.height * ratio))
-                    img = img.resize(new_size, Image.Refilter.LANCZOS)
+                    img = img.resize(new_size, Image.LANCZOS)
                     print(f"Resized image to: {new_size}")
                 
                 # Convert to base64
@@ -176,7 +184,7 @@ Example format:
             print("Making API request to OpenRouter...")
             
             # Make the API request
-            response = requests.post(self.api_url, headers=headers, json=data)
+            response = requests.post(self.api_url, headers=headers, json=data, timeout=60)
             response.raise_for_status()
             
             # Extract the response
@@ -222,9 +230,18 @@ Example format:
                 print("Content:", content)
                 raise Exception(f"Failed to parse AI response as JSON: {str(e)}")
             
+        except requests.Timeout:
+            print("API request timed out")
+            raise Exception("Request timed out - please try again")
+        except requests.RequestException as e:
+            print(f"API request failed: {str(e)}")
+            raise Exception("Failed to process image - please try again")
+        except PIL.UnidentifiedImageError:
+            print("Could not identify image file")
+            raise Exception("Invalid or corrupted image file")
         except Exception as e:
             print(f"\nError in extract_info: {str(e)}")
-            return []
+            raise Exception(f"Processing failed: {str(e)}")
     
     def _clean_extracted_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         """Clean and validate the extracted data"""
