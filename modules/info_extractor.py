@@ -62,17 +62,49 @@ For each piece of information you find:
 2. Extract its corresponding value
 3. Add any relevant remarks about the information
 
+For line items (products/services):
+- Extract each line item separately with sequential numbering
+- For each line item, extract ALL available columns/fields present in the document, such as:
+  * Product/service name
+  * HSN/SAC code
+  * Quantity and unit
+  * Rate/price
+  * Amount
+  * Taxable value
+  * Tax percentages (CGST%, SGST%, IGST%, etc.)
+  * Tax amounts (CGST Amount, SGST Amount, IGST Amount, etc.)
+  * Net amount
+  * Any other columns specific to the document
+- Include line number in all labels (e.g., "Line Item 1 - Product", "Line Item 1 - HSN/SAC", "Line Item 1 - CGST Amount")
+- Do not combine multiple line items into a single entry
+- Be thorough in capturing all columns present for each line item
+
+For summary tables and totals:
+- Extract all summary tables (e.g., HSN/SAC summary, tax summary)
+- Capture row-wise details from summary tables
+- Include table context in label (e.g., "HSN Summary - HSN Code", "HSN Summary - Taxable Value")
+- Extract all total/subtotal rows with proper context
+
+For party information (buyer/seller/other):
+- Include party context in remarks for identifiers (PAN, GST, address)
+- Clearly indicate which party each piece of information belongs to
+- Distinguish between billing/shipping addresses if both present
+
 Look for any important business information such as:
 - Document identifiers (reference numbers, dates)
+- Party details (with clear buyer/seller distinction)
+- Contact information (with party context)
+- Tax identification numbers (with party context)
+- Line items (with ALL columns and details)
+- Summary tables and their details
 - Monetary amounts and calculations
-- Names and contact information
-- Product or service details
+- Payment/banking details
 - Any other relevant information
 
 Return the information as a list of JSON objects with these fields:
-- label: What this information represents
+- label: What this information represents (include line numbers for line items)
 - value: The actual value found
-- remarks: Any relevant notes
+- remarks: Any relevant notes (include party context for identifiers)
 
 Example format:
 [
@@ -80,6 +112,36 @@ Example format:
         "label": "Document Type",
         "value": "Sales Invoice",
         "remarks": "Determined from document header"
+    },
+    {
+        "label": "GST Number",
+        "value": "03AAFF2431N1ZR",
+        "remarks": "Belongs to seller (FASHION ARTS)"
+    },
+    {
+        "label": "Line Item 1 - Product",
+        "value": "FRONT PANNEL - 1010",
+        "remarks": "First product line item"
+    },
+    {
+        "label": "Line Item 1 - HSN/SAC",
+        "value": "998822",
+        "remarks": "HSN code for first line item"
+    },
+    {
+        "label": "Line Item 1 - CGST Amount",
+        "value": "1385.65",
+        "remarks": "CGST amount for first line item"
+    },
+    {
+        "label": "HSN Summary - HSN Code",
+        "value": "998822",
+        "remarks": "From HSN/SAC summary table"
+    },
+    {
+        "label": "HSN Summary - Taxable Value",
+        "value": "242,486.00",
+        "remarks": "Total taxable value for HSN code 998822"
     }
 ]"""
 
