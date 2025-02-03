@@ -127,6 +127,13 @@
             
             <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
                 <div class="mb-3">
+                    <label for="model" class="form-label">Select AI Model</label>
+                    <select class="form-control" id="model" name="model" required>
+                        <option value="gemini-flash">Gemini Flash 1.5 (Fast & Accurate)</option>
+                        <option value="gpt4-mini">GPT-4 Mini (Balanced)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
                     <label for="file" class="form-label">Select an image file</label>
                     <input type="file" class="form-control" id="file" name="file" accept=".png,.jpg,.jpeg,.gif,.tiff,.bmp" required>
                 </div>

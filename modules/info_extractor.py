@@ -8,11 +8,31 @@ import io
 import PIL
 
 class AIInfoExtractor:
-    def __init__(self):
-        self.api_key = os.getenv('OPENROUTER_API_KEY')
+    MODELS = {
+        "gemini-flash": {
+            "name": "google/gemini-flash-1.5",  # Updated model name
+            "url": "https://openrouter.ai/api/v1/chat/completions",
+            "needs_key": "OPENROUTER_API_KEY"
+        },
+        "gpt4-mini": {
+            "name": "gpt-4o-mini",
+            "url": "https://openrouter.ai/api/v1/chat/completions",
+            "needs_key": "OPENROUTER_API_KEY"
+        },
+    }
+
+    def __init__(self, model_choice="gpt4-mini"):
+        if model_choice not in self.MODELS:
+            raise ValueError(f"Invalid model choice. Available models: {', '.join(self.MODELS.keys())}")
+            
+        model_config = self.MODELS[model_choice]
+        self.model = model_config["name"]
+        self.api_url = model_config["url"]
+        
+        # Get API key
+        self.api_key = os.getenv(model_config["needs_key"])
         if not self.api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
-        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
+            raise ValueError(f"{model_config['needs_key']} environment variable is required")
         
     def encode_image(self, image_path: str) -> str:
         """Convert image to base64 string"""
@@ -161,7 +181,7 @@ Example format:
             }
             
             data = {
-                "model": "gpt-4o-mini",
+                "model": self.model,
                 "messages": [
                     {
                         "role": "user",
@@ -181,11 +201,18 @@ Example format:
                 ]
             }
 
-            print("Making API request to OpenRouter...")
+            print(f"\nSending request with data: {json.dumps(data, indent=2)}")
             
             # Make the API request
             response = requests.post(self.api_url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                print(f"\nAPI Error Response: {response.text}")
+                if "model not found" in response.text.lower():
+                    raise Exception(f"Model '{self.model}' is not available. Please try a different model.")
+                elif "unauthorized" in response.text.lower():
+                    raise Exception("API key is invalid or expired. Please check your OPENROUTER_API_KEY.")
+                response.raise_for_status()
             
             # Extract the response
             result = response.json()
@@ -196,6 +223,11 @@ Example format:
             if isinstance(result, dict) and 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0].get('message', {}).get('content', '')
                 print("\nExtracted content:", content)
+                
+                # Try to clean the content if it contains markdown code blocks
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                    print("\nCleaned content from markdown:", content)
             else:
                 print("\nUnexpected API response format")
                 raise Exception("Unexpected API response format")
@@ -208,12 +240,20 @@ Example format:
                 
                 if start_idx == -1 or end_idx == -1:
                     print("\nNo JSON array found in response")
+                    if "```" in content:
+                        raise Exception("Model returned markdown instead of JSON. Please try GPT-4 Mini model.")
                     raise Exception("No JSON array found in response")
                 
                 json_str = content[start_idx:end_idx + 1]
                 print("\nExtracted JSON string:", json_str)
                 
-                extracted_data = json.loads(json_str)
+                try:
+                    extracted_data = json.loads(json_str)
+                except json.JSONDecodeError:
+                    # Try to clean the string if initial parse fails
+                    json_str = json_str.replace('\n', ' ').replace('\r', '')
+                    json_str = ' '.join(json_str.split())  # Normalize whitespace
+                    extracted_data = json.loads(json_str)
                 
                 if not isinstance(extracted_data, list):
                     print("\nExtracted data is not a list")
@@ -228,20 +268,20 @@ Example format:
             except json.JSONDecodeError as e:
                 print(f"\nJSON Decode Error: {str(e)}")
                 print("Content:", content)
-                raise Exception(f"Failed to parse AI response as JSON: {str(e)}")
+                raise Exception("Model returned invalid JSON format. Please try GPT-4 Mini model.")
             
         except requests.Timeout:
             print("API request timed out")
             raise Exception("Request timed out - please try again")
         except requests.RequestException as e:
             print(f"API request failed: {str(e)}")
-            raise Exception("Failed to process image - please try again")
+            raise Exception(f"API request failed: {str(e)}")
         except PIL.UnidentifiedImageError:
             print("Could not identify image file")
             raise Exception("Invalid or corrupted image file")
         except Exception as e:
             print(f"\nError in extract_info: {str(e)}")
-            raise Exception(f"Processing failed: {str(e)}")
+            raise Exception(str(e))
     
     def _clean_extracted_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         """Clean and validate the extracted data"""

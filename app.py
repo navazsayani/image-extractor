@@ -46,8 +46,11 @@ def upload_file():
             file.save(filepath)
             
             try:
-                # Process the image using AI
-                info_extractor = AIInfoExtractor()
+                # Get selected model
+                model = request.form.get('model', 'gpt4-vision')
+                
+                # Process the image using AI with selected model
+                info_extractor = AIInfoExtractor(model_choice=model)
                 extracted_info = info_extractor.extract_info(filepath)
                 
                 # Clean up the uploaded file
