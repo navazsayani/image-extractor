@@ -6,13 +6,24 @@ import requests
 from PIL import Image, UnidentifiedImageError
 import io
 import PIL
+from google import genai
 
 class AIInfoExtractor:
     MODELS = {
+        # "gemini-flash": {
+        #     "name": "google/gemini-flash-1.5",  # Updated model name
+        #     "url": "https://openrouter.ai/api/v1/chat/completions",
+        #     "needs_key": "OPENROUTER_API_KEY"
+        # },
         "gemini-flash": {
-            "name": "google/gemini-flash-1.5",  # Updated model name
-            "url": "https://openrouter.ai/api/v1/chat/completions",
-            "needs_key": "OPENROUTER_API_KEY"
+            "name": "gemini-1.5-flash",  # Google AI Studio model name
+            "url": None,  # Not needed for Google AI Studio
+            "needs_key": "GOOGLE_API_KEY"
+        },
+        "gemini-flash-2.0": {
+            "name": "gemini-2.0-flash",  # Google AI Studio model name
+            "url": None,  # Not needed for Google AI Studio
+            "needs_key": "GOOGLE_API_KEY"
         },
         "gpt4-mini": {
             "name": "gpt-4o-mini",
@@ -21,19 +32,6 @@ class AIInfoExtractor:
         },
     }
 
-    def __init__(self, model_choice="gpt4-mini"):
-        if model_choice not in self.MODELS:
-            raise ValueError(f"Invalid model choice. Available models: {', '.join(self.MODELS.keys())}")
-            
-        model_config = self.MODELS[model_choice]
-        self.model = model_config["name"]
-        self.api_url = model_config["url"]
-        
-        # Get API key
-        self.api_key = os.getenv(model_config["needs_key"])
-        if not self.api_key:
-            raise ValueError(f"{model_config['needs_key']} environment variable is required")
-        
     def encode_image(self, image_path: str) -> str:
         """Convert image to base64 string"""
         if not os.path.exists(image_path):
@@ -70,6 +68,100 @@ class AIInfoExtractor:
         except Exception as e:
             print(f"Error encoding image: {str(e)}")
             raise
+
+    def __init__(self, model_choice="gpt4-mini"):
+        if model_choice not in self.MODELS:
+            raise ValueError(f"Invalid model choice. Available models: {', '.join(self.MODELS.keys())}")
+            
+        self.model_choice = model_choice  # Store model choice for reference
+        model_config = self.MODELS[model_choice]
+        self.model = model_config["name"]
+        self.api_url = model_config["url"]
+        
+        # Get API key
+        self.api_key = os.getenv(model_config["needs_key"])
+        if not self.api_key:
+            raise ValueError(f"{model_config['needs_key']} environment variable is required")
+            
+        # Configure Google AI if using Gemini models
+        if "gemini" in model_choice:
+             # genai.configure(api_key=self.api_key)
+             self.client = genai.Client(api_key=self.api_key)
+    def extract_info_google_ai(self, image_path: str, prompt: str) -> List[Dict[str, str]]:
+        """Extract information using Google AI Studio approach for Gemini models"""
+        try:
+            
+            # Set model configuration based on version
+            # generation_config = {
+            #     'temperature': 0.1,
+            #     'top_p': 0.8,
+            #     'top_k': 40,
+            # }
+            
+            # Add specific configurations for 2.0
+            # if self.model_choice == "gemini-flash-2.0":
+            #     generation_config.update({
+            #         'temperature': 0.05,  # More focused for 2.0
+            #         'top_p': 0.9,
+            #         'top_k': 50,
+            #     })
+            
+            # Prepare the content parts
+            content = [
+                prompt,  # Text prompt
+                Image.open(image_path)
+                # genai.types.Image.from_bytes(
+                #     base64.b64decode(base64_image)
+                # )  # Image data
+            ]
+            
+            # Generate response
+            # response = model.generate_content(content)
+            response = self.client.models.generate_content(
+                model = self.model,
+                contents = content
+                )
+            
+            if not response.text:
+                raise Exception("No response received from the model")
+                
+            content = response.text
+            
+            # Parse the JSON response (reuse existing JSON parsing logic)
+            try:
+                # Find the first '[' and last ']' to extract the JSON array
+                start_idx = content.find('[')
+                end_idx = content.rfind(']')
+                
+                if start_idx == -1 or end_idx == -1:
+                    print("\nNo JSON array found in response")
+                    if "```" in content:
+                        raise Exception("Model returned markdown instead of JSON. Please try GPT-4 Mini model.")
+                    raise Exception("No JSON array found in response")
+                
+                json_str = content[start_idx:end_idx + 1]
+                print("\nExtracted JSON string:", json_str)
+                
+                extracted_data = json.loads(json_str)
+                
+                if not isinstance(extracted_data, list):
+                    print("\nExtracted data is not a list")
+                    raise Exception("Extracted data is not a list")
+                
+                # Validate and clean the extracted data
+                cleaned_data = self._clean_extracted_data(extracted_data)
+                print("\nCleaned data:", json.dumps(cleaned_data, indent=2))
+                
+                return cleaned_data
+                
+            except json.JSONDecodeError as e:
+                print(f"\nJSON Decode Error: {str(e)}")
+                print("Content:", content)
+                raise Exception("Model returned invalid JSON format. Please try GPT-4 Mini model.")
+                
+        except Exception as e:
+            print(f"\nError in extract_info_google_ai: {str(e)}")
+            raise Exception(str(e))
 
     def extract_info(self, image_path: str) -> List[Dict[str, str]]:
         """
@@ -132,48 +224,14 @@ Look for any important business information such as:
 Return the information as a list of JSON objects with these fields:
 - label: What this information represents (include line numbers for line items)
 - value: The actual value found
-- remarks: Any relevant notes (include party context for identifiers)
+- remarks: Any relevant notes (include party context for identifiers)"""
 
-Example format:
-[
-    {
-        "label": "Document Type",
-        "value": "Sales Invoice",
-        "remarks": "Determined from document header"
-    },
-    {
-        "label": "GST Number",
-        "value": "03AAFF2431N1ZR",
-        "remarks": "Belongs to seller (FASHION ARTS)"
-    },
-    {
-        "label": "Line Item 1 - Product",
-        "value": "FRONT PANNEL - 1010",
-        "remarks": "First product line item"
-    },
-    {
-        "label": "Line Item 1 - HSN/SAC",
-        "value": "998822",
-        "remarks": "HSN code for first line item"
-    },
-    {
-        "label": "Line Item 1 - CGST Amount",
-        "value": "1385.65",
-        "remarks": "CGST amount for first line item"
-    },
-    {
-        "label": "HSN Summary - HSN Code",
-        "value": "998822",
-        "remarks": "From HSN/SAC summary table"
-    },
-    {
-        "label": "HSN Summary - Taxable Value",
-        "value": "242,486.00",
-        "remarks": "Total taxable value for HSN code 998822"
-    }
-]"""
-
-            # Prepare the API request
+            # Use Google AI Studio approach for Gemini models
+            if "gemini" in self.model_choice:
+                return self.extract_info_google_ai(image_path, prompt)
+                
+            # Use OpenRouter approach for GPT-4o-mini            
+            # Prepare the OpenRouter API request
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "HTTP-Referer": "https://github.com/",
