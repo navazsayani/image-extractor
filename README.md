@@ -1,6 +1,7 @@
 # Document Information Extractor
 
 A web application that intelligently extracts key information from uploaded images of transactional documents (bills, invoices, sales orders, etc.) using AI vision capabilities.
+Preview here - https://image-extractor-production.up.railway.app/
 
 ## Features
 
